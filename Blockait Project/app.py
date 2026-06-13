@@ -1,14 +1,3 @@
-"""
-app.py — Step 5: Blockait Streamlit demo.
-
-Three tabs:
-  1. Single complaint  — type a complaint, get a colour-coded triage card.
-  2. Batch dashboard   — run a batch (test sample or uploaded CSV) -> the
-                         "triage queue" a city operator would actually use.
-  3. Model performance — the metrics from train.py, so judges see it really works.
-
-Run:  streamlit run app.py
-"""
 
 import os
 import json
@@ -31,7 +20,7 @@ DATA_DIR = os.path.join(HERE, "data")
 st.set_page_config(page_title="Blockait — Astana Complaint Router", page_icon="🏙️", layout="wide")
 
 URGENCY_COLORS = {"critical": "#d62728", "high": "#ff7f0e", "medium": "#f1c40f", "low": "#2ca02c"}
-# Darker, readable-on-white variants for the urgency TEXT inside the white card.
+
 URGENCY_TEXT = {"critical": "#c0392b", "high": "#cb4b00", "medium": "#9a7d0a", "low": "#1e8449"}
 URGENCY_EMOJI = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
 
@@ -53,13 +42,11 @@ EXAMPLES = [
 ]
 
 
-# --------------------------------------------------------------------------- #
-# Cached resources
-# --------------------------------------------------------------------------- #
+
 @st.cache_resource(show_spinner="Загрузка моделей / Loading models...")
 def _warm_models():
     load_models()
-    classify_complaint("прогрев модели")     # warm the embedding model once
+    classify_complaint("прогрев модели")    
     return True
 
 
@@ -136,9 +123,7 @@ def _render_card(r: dict):
         st.json(r["priority_breakdown"])
 
 
-# --------------------------------------------------------------------------- #
-# Header
-# --------------------------------------------------------------------------- #
+
 st.title("🏙️ Blockait — Классификатор и маршрутизатор жалоб (Астана)")
 st.caption("Citizen Complaint Classifier & Router for Astana · Blockait @ SmartScape AI-for-Smart-Cities Hackathon")
 
@@ -149,9 +134,6 @@ if not os.path.exists(os.path.join(MODELS_DIR, "category_clf.joblib")):
 _warm_models()
 tab1, tab2, tab3 = st.tabs(["📝 Одна жалоба / Single", "📋 Очередь триажа / Batch", "📈 Качество модели / Metrics"])
 
-# --------------------------------------------------------------------------- #
-# Tab 1 — Single complaint
-# --------------------------------------------------------------------------- #
 with tab1:
     st.subheader("Анализ одной жалобы / Analyze a single complaint")
     if "complaint_text" not in st.session_state:
@@ -172,9 +154,7 @@ with tab1:
         else:
             st.info("Введите текст жалобы.")
 
-# --------------------------------------------------------------------------- #
-# Tab 2 — Batch dashboard (the triage queue)
-# --------------------------------------------------------------------------- #
+
 with tab2:
     st.subheader("Пакетная обработка — очередь триажа / Batch triage queue")
     st.write("Загрузите CSV со столбцом `text`, либо используйте выборку из тестового набора.")
@@ -245,7 +225,6 @@ with tab2:
         ranked = res_df.sort_values("priority", ascending=False).reset_index(drop=True)
 
         def _priority_colors(col):
-            # green (low) -> yellow -> red (high); no matplotlib needed.
             out = []
             for v in col:
                 r = int(255 * min(v / 50.0, 1.0))
@@ -267,9 +246,7 @@ with tab2:
                   .round(1).sort_values("complaints", ascending=False).reset_index())
         st.dataframe(by_dep, use_container_width=True)
 
-# --------------------------------------------------------------------------- #
-# Tab 3 — Model performance
-# --------------------------------------------------------------------------- #
+
 with tab3:
     st.subheader("Качество моделей / Model performance")
     metrics = _load_metrics()
@@ -294,7 +271,7 @@ with tab3:
                   help=f"R² {metrics['resolution_days']['test_r2']:.3f} · "
                        f"{metrics['resolution_days']['selected_model']}")
 
-        # Per-class F1 + confusion matrices for the two classifiers.
+      
         for key, title in [("category", "Категории / Category"), ("urgency", "Срочность / Urgency")]:
             st.markdown(f"#### {title}")
             rep = metrics[key]["classification_report"]
