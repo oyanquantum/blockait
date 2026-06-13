@@ -1,0 +1,15 @@
+# Blockait — core dependencies (LIGHTWEIGHT, default backend = TF-IDF).
+# Installs in ~1 minute, NO model downloads, runs fully offline.
+# These are everything needed to run the committed models + the Streamlit demo.
+scikit-learn==1.4.2
+pandas==2.2.3
+numpy==1.26.4
+scipy==1.13.1
+joblib==1.5.3
+plotly==6.8.0
+streamlit==1.39.1
+langdetect==1.0.9
+
+# OPTIONAL upgrade — multilingual sentence-transformer embedding backend.
+# Heavier (pulls in torch, ~470MB one-time model download on first run).
+# To use it:  pip install -r requirements-sbert.txt  &&  BLOCKAIT_BACKEND=sbert python train.py

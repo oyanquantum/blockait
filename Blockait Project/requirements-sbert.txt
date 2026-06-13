@@ -1,0 +1,13 @@
+# OPTIONAL: multilingual sentence-embedding backend (sentence-transformers).
+# Adds semantic embeddings (paraphrase-multilingual-MiniLM-L12-v2, 384-dim).
+# Heavier install (torch) + a one-time ~470MB model download on first use.
+#
+#   pip install -r requirements-sbert.txt
+#   BLOCKAIT_BACKEND=sbert python train.py
+#
+# NOTE: on this SYNTHETIC dataset the lightweight TF-IDF backend actually scores
+# slightly higher; sbert is expected to generalise better on REAL, free-form
+# complaints, which is why it's kept as a first-class option.
+-r requirements.txt
+sentence-transformers==3.0.1
+torch==2.8.0
