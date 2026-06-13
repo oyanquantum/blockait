@@ -1,24 +1,3 @@
-"""
-train.py — Step 3: train and evaluate all Blockait models, end-to-end.
-
-Pipeline:
-  1. Load the stratified train/test split.
-  2. Fit the TextFeaturizer (sentence embeddings + engineered features) on train.
-  3. CATEGORY classifier  — model selection over {LogReg, RandomForest, MLP}
-     by 5-fold macro-F1 CV on train; final report on the held-out test set.
-  4. URGENCY classifier   — same selection procedure (4 classes).
-  5. COST regressor        — selection over {GradientBoosting, RandomForest}
-     (log-target) by CV MAE; report MAE & R² on test.
-  6. RESOLUTION-TIME regressor — same procedure.
-  7. Save every artifact to models/ (joblib) + metrics.json for the demo's
-     "model performance" tab.
-
-Department routing is a deterministic lookup (keywords.DEPARTMENT_MAP), and the
-priority score is a transparent formula (see pipeline.py) — neither is an ML
-model, by design.
-
-Run:  python train.py
-"""
 
 import os
 import json
@@ -59,15 +38,12 @@ def banner(title):
     print("=" * 72)
 
 
-# ---------------------------------------------------------------------------
-# Classification: select best of 3 candidates by CV macro-F1, report on test.
-# ---------------------------------------------------------------------------
+
 def train_classifier(name, Xtr, ytr, Xte, yte, class_names):
     candidates = {
         "LogisticRegression": LogisticRegression(max_iter=2000, C=2.0,
                                                   class_weight="balanced", random_state=SEED),
-        # n_jobs=1 on the estimator: parallelism is handled by cross_val_score below,
-        # so we avoid nested -1/-1 oversubscription (CPU²/memory blow-up -> OOM).
+
         "RandomForest": RandomForestClassifier(n_estimators=300, max_depth=None,
                                                class_weight="balanced", random_state=SEED, n_jobs=1),
         "MLP": MLPClassifier(hidden_layer_sizes=(128,), max_iter=500,
@@ -104,18 +80,15 @@ def train_classifier(name, Xtr, ytr, Xte, yte, class_names):
     return best, metrics
 
 
-# ---------------------------------------------------------------------------
-# Regression: select best of 2 candidates by CV MAE (log target), report on test.
-# ---------------------------------------------------------------------------
+
 def train_regressor(name, Xtr, ytr, Xte, yte, unit):
     def wrap(est):
-        # log1p target stabilises the heavy right-skew of cost/days.
+
         return TransformedTargetRegressor(regressor=est, func=np.log1p, inverse_func=np.expm1)
 
     candidates = {
         "GradientBoosting": wrap(GradientBoostingRegressor(random_state=SEED)),
-        # max_depth caps tree size (regression trees grow very deep on continuous
-        # targets) -> much smaller artifacts & bounded memory; n_jobs=1 avoids nesting.
+
         "RandomForest": wrap(RandomForestRegressor(n_estimators=300, max_depth=20,
                                                    random_state=SEED, n_jobs=1)),
     }
@@ -151,10 +124,6 @@ def main():
     test_df = pd.read_csv(os.path.join(DATA_DIR, "test.csv"))
     print(f"Loaded train={len(train_df)}  test={len(test_df)}")
 
-    # --- Featurization -----------------------------------------------------
-    # Backend is configurable: BLOCKAIT_BACKEND = auto | sbert | tfidf
-    #   auto  -> sbert if sentence-transformers is installed, else tfidf
-    #   tfidf -> lightweight, no downloads (fully self-contained demo)
     backend = os.environ.get("BLOCKAIT_BACKEND", "auto")
     print(f"\nFitting featurizer (BLOCKAIT_BACKEND={backend})...")
     feat = TextFeaturizer(backend=backend)
@@ -163,7 +132,7 @@ def main():
     print(f"Backend = {feat.resolved_backend}   feature dim = {Xtr.shape[1]} "
           f"(embedding={feat.embedding_dim_} + handcrafted={len(HANDCRAFTED_FEATURES)})")
 
-    # --- Category classifier ----------------------------------------------
+
     banner("CATEGORY classifier")
     cat_enc = LabelEncoder().fit(train_df["category"])
     ytr_cat = cat_enc.transform(train_df["category"])
@@ -171,7 +140,7 @@ def main():
     cat_clf, cat_metrics = train_classifier("category", Xtr, ytr_cat, Xte, yte_cat,
                                             list(cat_enc.classes_))
 
-    # --- Urgency classifier -----------------------------------------------
+
     banner("URGENCY classifier")
     urg_enc = LabelEncoder().fit(train_df["urgency"])
     ytr_urg = urg_enc.transform(train_df["urgency"])
@@ -179,17 +148,17 @@ def main():
     urg_clf, urg_metrics = train_classifier("urgency", Xtr, ytr_urg, Xte, yte_urg,
                                             list(urg_enc.classes_))
 
-    # --- Cost regressor ----------------------------------------------------
+
     banner("COST regressor (KZT)")
     cost_reg, cost_metrics = train_regressor("cost", Xtr, train_df["cost_kzt"].values,
                                              Xte, test_df["cost_kzt"].values, "KZT")
 
-    # --- Resolution-time regressor ----------------------------------------
+
     banner("RESOLUTION-TIME regressor (days)")
     days_reg, days_metrics = train_regressor("days", Xtr, train_df["resolution_days"].values,
                                              Xte, test_df["resolution_days"].values, "days")
 
-    # --- Persist artifacts (compress=3 keeps tree models small enough to commit) -
+
     banner("Saving artifacts -> models/")
     joblib.dump(feat, os.path.join(MODELS_DIR, "featurizer.joblib"), compress=3)
     joblib.dump({"model": cat_clf, "encoder": cat_enc}, os.path.join(MODELS_DIR, "category_clf.joblib"), compress=3)
@@ -214,9 +183,7 @@ def main():
     with open(os.path.join(MODELS_DIR, "metrics.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
 
-    # Per-category p2–p98 cost/days ranges — inference-time guardrails that clamp
-    # the regressors to realistic values (see pipeline.py). Computed from the full
-    # labelled set so they're stable.
+
     full_df = pd.concat([train_df, test_df], ignore_index=True)
     category_ranges = {}
     for cat, g in full_df.groupby("category"):
