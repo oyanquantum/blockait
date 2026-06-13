@@ -1,37 +1,4 @@
-"""
-pipeline.py — Step 4: the end-to-end inference pipeline.
 
-Public API:
-    classify_complaint(text: str) -> dict
-
-It loads every trained artifact ONCE (module-level cache) and runs:
-    language detection -> embedding + engineered features -> category prediction
-    -> urgency prediction -> cost prediction -> resolution-time prediction
-    -> deterministic department routing -> transparent priority score.
-
-It also returns a confidence score for the category & urgency predictions and a
-`needs_human_review` flag when confidence is low.
-
-----------------------------------------------------------------------------
-PRIORITY SCORE (0-100) — a transparent, interpretable triage heuristic.
-We deliberately do NOT use a black-box model here: an explainable formula is a
-STRENGTH for a government system that must justify how it ranks citizens' issues.
-
-    score = 100 * ( 0.40 * U                 # urgency  (safety first)
-                  + 0.25 * P                 # population impact (who is affected)
-                  + 0.20 * Ce                # cost-efficiency (impact PER cost)
-                  + 0.15 * (Speed * U) )     # quick wins that are ALSO urgent
-
-  U  (urgency)        : low .15 / medium .45 / high .75 / critical 1.0
-  P  (population)      : min(population_keyword_weight / 2, 1)   # schools, hospitals...
-  Ce (cost-efficiency): impact * (1 - min(cost / 2,000,000, 1)) # cheap & IMPACTFUL => high
-                        impact = max(U, P)   # a cheap-but-trivial issue gets no free ride
-  Speed               : 1 - min(days / 30, 1)                   # faster => higher
-                        (gated by U, so a fast fix only boosts priority if urgent)
-
-Weights sum to 1.0; every term is normalised to [0,1]; the breakdown is returned
-so the UI can show exactly *why* a complaint ranked where it did.
-"""
 
 import os
 import numpy as np
@@ -42,22 +9,19 @@ from features import detect_language
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(HERE, "models")
 
-# Confidence thresholds below which we ask for a human in the loop.
-# Calibrated to flag the genuinely-uncertain tail (~15% of cases). NOTE: the
-# RandomForest category model spreads probability over 10 classes, so its "top"
-# probability is naturally < 0.5 even when correct — hence the 0.35 threshold.
+
 CATEGORY_CONF_THRESHOLD = 0.35
 URGENCY_CONF_THRESHOLD = 0.32
 
-# Priority-score constants.
+
 URGENCY_SCORE = {"low": 0.15, "medium": 0.45, "high": 0.75, "critical": 1.0}
 URGENCY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-# Minimum urgency enforced for inherently-emergency categories (transparent rule).
+
 URGENCY_FLOOR = {
     "fire": "critical", "medical_emergency": "critical", "gas_leak": "critical",
     "traffic_accident": "high",
 }
-# Explicit life-threatening cues that force CRITICAL urgency regardless of category.
+
 LIFE_THREAT_KEYWORDS = [
     "убийств", "труп", "застрел", "зарезал", "стрельб", "выстрел", "ножом",
     "взрыв", "заложник", "не дышит", "без сознания",
@@ -66,12 +30,11 @@ LIFE_THREAT_KEYWORDS = [
     "murder", "killed", "dead body", "shooting", "stabbed", "hostage",
     "explosion", "not breathing", "unconscious", "gas leak", "smell of gas",
 ]
-COST_CAP = 2_000_000      # KZT; cost at/above this contributes 0 cost-efficiency
-DAYS_CAP = 30             # days; resolution at/above this contributes 0 speed
+COST_CAP = 2_000_000      
+DAYS_CAP = 30             
 PRIORITY_WEIGHTS = {"urgency": 0.40, "population": 0.25, "cost_efficiency": 0.20, "speed_urgency": 0.15}
 
-_MODELS = None            # module-level cache
-
+_MODELS = None           
 
 def load_models():
     """Load & cache all artifacts. Raises a clear error if training hasn't run."""
@@ -99,9 +62,7 @@ def load_models():
         "cost_reg": joblib.load(os.path.join(MODELS_DIR, "cost_reg.joblib")),
         "days_reg": joblib.load(os.path.join(MODELS_DIR, "days_reg.joblib")),
         "metrics": _load_json("metrics.json"),
-        # Per-category p2–p98 ranges: a data-driven guardrail that clamps the
-        # regressors to realistic values (prevents regression-to-mean blunders
-        # like predicting "8 days" for a same-day medical emergency).
+ 
         "category_ranges": _load_json("category_ranges.json"),
     }
     return _MODELS
@@ -123,8 +84,8 @@ def compute_priority(urgency: str, cost: float, days: float, pop_w: float):
     """Return (score_0_100, component_breakdown). See module docstring for the formula."""
     U = URGENCY_SCORE.get(urgency, 0.45)
     P = min(pop_w / 2.0, 1.0)
-    impact = max(U, P)                                  # how important is this issue at all
-    Ce = impact * (1.0 - min(cost / COST_CAP, 1.0))     # genuine impact-per-cost
+    impact = max(U, P)                                 
+    Ce = impact * (1.0 - min(cost / COST_CAP, 1.0))     
     Speed = 1.0 - min(days / DAYS_CAP, 1.0)
     terms = {
         "urgency": PRIORITY_WEIGHTS["urgency"] * U,
@@ -155,56 +116,49 @@ def classify_complaint(text: str) -> dict:
     M = load_models()
     feat = M["featurizer"]
 
-    # 1) language + 2) features (embedding ++ engineered)
+
     lang = detect_language(text)
     X = feat.transform([text])
 
-    # 3) category (with confidence)
+
     cat_model, cat_enc = M["category"]["model"], M["category"]["encoder"]
     cat_proba = cat_model.predict_proba(X)[0]
     cat_idx = int(np.argmax(cat_proba))
     category = cat_enc.classes_[cat_idx]
     cat_conf = float(cat_proba[cat_idx])
 
-    # 4) urgency (with confidence)
+
     urg_model, urg_enc = M["urgency"]["model"], M["urgency"]["encoder"]
     urg_classes = list(urg_enc.classes_)
     urg_proba = urg_model.predict_proba(X)[0]
     urgency = urg_classes[int(np.argmax(urg_proba))]
 
-    # Safety floor: some categories are emergencies BY DEFINITION — no dispatcher
-    # treats a fire or a person collapsing as "low/medium". This is a transparent
-    # domain rule layered on the ML (like department routing), not a faked model.
     urgency_adjusted = False
     floor = URGENCY_FLOOR.get(category)
     if floor and URGENCY_RANK[floor] > URGENCY_RANK[urgency]:
         urgency = floor
         urgency_adjusted = True
-    # Life-threat keyword floor: explicit mentions of murder / shooting / explosion /
-    # hostages are critical regardless of the predicted category.
+
     low_text = text.lower()
     if any(k in low_text for k in LIFE_THREAT_KEYWORDS) and URGENCY_RANK[urgency] < URGENCY_RANK["critical"]:
         urgency = "critical"
         urgency_adjusted = True
-    # Confidence = model's probability of the FINAL urgency class (so an overridden
-    # case shows low confidence and is flagged for human review — honest by design).
+
     urg_conf = float(urg_proba[urg_classes.index(urgency)])
 
-    # 5) cost + 6) resolution time (non-negative, rounded sensibly)
+
     cost = _round_cost(float(np.clip(M["cost_reg"].predict(X)[0], 0, None)))
     days = int(max(0, round(float(np.clip(M["days_reg"].predict(X)[0], 0, None)))))
 
-    # Guardrail: clamp the regressor outputs to the predicted category's realistic
-    # p2–p98 range so emergencies don't get blended-mean estimates.
     rng = M.get("category_ranges", {}).get(category)
     if rng:
         cost = int(min(max(cost, rng["cost"][0]), rng["cost"][1]))
         days = int(min(max(days, rng["days"][0]), rng["days"][1]))
 
-    # 7) department routing (deterministic)
+    
     department = route_department(category)
 
-    # priority score
+
     pop_w, pop_matched = population_weight(text)
     priority, breakdown = compute_priority(urgency, cost, days, pop_w)
 
@@ -239,7 +193,7 @@ def classify_complaint(text: str) -> dict:
 
 
 if __name__ == "__main__":
-    # Quick manual sanity check (the README's "does it make sense?" tests).
+.
     examples = [
         "На улице Кенесары яма на дороге уже месяц, машины повреждаются",
         "Возле школы №25 не работает уличный фонарь, вечером темно и опасно для детей",
