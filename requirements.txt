@@ -1,10 +1,17 @@
-# Blockait — core dependencies (LIGHTWEIGHT, default backend = TF-IDF).
-# Installs in ~1 minute, NO model downloads, runs fully offline.
-# These are everything needed to run the committed models + the Streamlit demo.
-scikit-learn==1.4.2
+# Blockait — core dependencies (TF-IDF backend, Streamlit demo).
+# Pins below match the committed joblib models (trained with sklearn 1.4.2).
+# Environment markers let the same file install on Streamlit Cloud (Python 3.13+)
+# and locally on Python 3.9–3.12.
+
+# ML stack — 1.4.x wheels exist only up to Python 3.12
+scikit-learn==1.4.2; python_version < "3.13"
+scikit-learn>=1.5,<2; python_version >= "3.13"
+numpy==1.26.4; python_version < "3.13"
+numpy>=2.0,<3; python_version >= "3.13"
+scipy==1.13.1; python_version < "3.13"
+scipy>=1.14,<2; python_version >= "3.13"
+
 pandas==2.2.3
-numpy==1.26.4
-scipy==1.13.1
 joblib==1.5.3
 plotly==6.8.0
 streamlit==1.39.1
